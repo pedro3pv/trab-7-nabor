@@ -3,7 +3,6 @@
 Este projeto implementa uma simulação de uma rede Peer-to-Peer (P2P) não estruturada, permitindo a execução e comparação de diferentes algoritmos de busca de recursos (Flooding e Random Walk), incluindo suas variantes informadas (com cache).
 
 ## 1. Identificação da Equipe
-*Preencha com os nomes dos integrantes:*
 *   Pedro Augusto De Oliveira Neto - 2224213
 *   Francisco Dantas Da Silva Neto - 2223879
 *   Natanael Freitas De Azevedo - 2224186
