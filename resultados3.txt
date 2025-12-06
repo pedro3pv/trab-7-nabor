@@ -1,0 +1,6 @@
+
+--- TESTE 3: Recurso Distante (Random Walk) ---
+Encontrado: True
+Mensagens trocadas: 5
+Nós envolvidos: 4
+Caminho: n1 -> n2 -> n1 -> n2 -> n4 -> n6

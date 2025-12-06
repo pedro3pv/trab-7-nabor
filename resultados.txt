@@ -1,0 +1,5 @@
+--- TESTE 1: Recurso Próximo (Flooding) ---
+Encontrado: True
+Mensagens trocadas: 2
+Nós envolvidos: 2
+Caminho: n1 -> n2
