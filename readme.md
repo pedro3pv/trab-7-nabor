@@ -23,6 +23,12 @@ O software foi desenvolvido em **Python** e opera através de linha de comando (
 
 Abaixo estão os resultados obtidos executando os algoritmos na topologia de teste definida em `config.json`.
 
+### Topologia da Rede
+
+A rede P2P utilizada nos testes possui 6 nós conectados conforme o diagrama abaixo:
+
+![Rede P2P - Topologia e Recursos](./network_topology.png)
+
 ### Tabela de Resultados
 
 | Cenário | Algoritmo | Origem → Destino | Msgs Trocadas | Nós Envolvidos | Caminho Encontrado | Observação |
