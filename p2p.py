@@ -1,8 +1,12 @@
 import json
 import sys
 import random
+import time
 from collections import deque, defaultdict
 from typing import Dict, Set, List, Tuple, Optional
+import networkx as nx
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 
 
 class Node:
@@ -78,6 +82,313 @@ class P2PNetwork:
         """
         for node_id in path:
             self.nodes[node_id].cache[resource_id].add(target_id)
+
+    # ---------- Visualização ----------
+
+    def visualize_network(self, save_path: Optional[str] = None):
+        """
+        Exibe uma representação gráfica da rede P2P.
+        Se save_path for fornecido, salva a imagem ao invés de exibir.
+        """
+        G = nx.Graph()
+        
+        # Adiciona nós
+        for node_id, node in self.nodes.items():
+            resources_str = ', '.join(sorted(node.resources))
+            G.add_node(node_id, resources=resources_str)
+        
+        # Adiciona arestas
+        for node_id, node in self.nodes.items():
+            for neighbor_id in node.neighbors:
+                if node_id < neighbor_id:  # Evita duplicatas
+                    G.add_edge(node_id, neighbor_id)
+        
+        # Configuração do layout
+        plt.figure(figsize=(12, 8))
+        pos = nx.spring_layout(G, seed=42, k=2, iterations=50)
+        
+        # Desenha nós
+        nx.draw_networkx_nodes(G, pos, node_color='lightblue', 
+                              node_size=1500, alpha=0.9)
+        
+        # Desenha arestas
+        nx.draw_networkx_edges(G, pos, alpha=0.5, width=2)
+        
+        # Labels dos nós com recursos
+        labels = {}
+        for node_id in G.nodes():
+            resources = G.nodes[node_id]['resources']
+            labels[node_id] = f"{node_id}\n[{resources}]"
+        
+        nx.draw_networkx_labels(G, pos, labels, font_size=8)
+        
+        plt.title("Rede P2P - Topologia e Recursos", fontsize=16, fontweight='bold')
+        plt.axis('off')
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+            print(f"Rede visualizada e salva em: {save_path}")
+            plt.close()
+        else:
+            plt.show()
+
+    def visualize_search_animated(self, node_id: str, resource_id: str, 
+                                 ttl: int, algo: str, seed: Optional[int] = None,
+                                 save_path: Optional[str] = None):
+        """
+        Cria uma animação da busca em tempo real.
+        Se save_path for fornecido, salva como GIF.
+        """
+        if seed is not None:
+            random.seed(seed)
+        
+        # Executa a busca com rastreamento
+        search_steps = self._search_with_tracking(node_id, resource_id, ttl, algo)
+        
+        # Cria o grafo NetworkX
+        G = nx.Graph()
+        for nid, node in self.nodes.items():
+            G.add_node(nid)
+        for nid, node in self.nodes.items():
+            for neighbor_id in node.neighbors:
+                if nid < neighbor_id:
+                    G.add_edge(nid, neighbor_id)
+        
+        pos = nx.spring_layout(G, seed=42, k=2, iterations=50)
+        
+        # Configuração da figura
+        fig, ax = plt.subplots(figsize=(12, 8))
+        
+        def update(frame):
+            ax.clear()
+            
+            if frame >= len(search_steps):
+                frame = len(search_steps) - 1
+            
+            step_data = search_steps[frame]
+            current_nodes = step_data['visited']
+            current_path = step_data['current_path']
+            found = step_data['found']
+            msg_count = step_data['msg_count']
+            
+            # Cores dos nós
+            node_colors = []
+            for n in G.nodes():
+                if found and n == current_path[-1]:
+                    node_colors.append('green')  # Nó que possui o recurso
+                elif n == node_id:
+                    node_colors.append('orange')  # Nó inicial
+                elif n in current_nodes:
+                    node_colors.append('yellow')  # Nós visitados
+                else:
+                    node_colors.append('lightgray')  # Nós não visitados
+            
+            # Desenha nós
+            nx.draw_networkx_nodes(G, pos, node_color=node_colors, 
+                                  node_size=1500, alpha=0.9, ax=ax)
+            
+            # Desenha todas as arestas em cinza
+            nx.draw_networkx_edges(G, pos, alpha=0.3, width=1, ax=ax)
+            
+            # Desenha o caminho atual em vermelho
+            if len(current_path) > 1:
+                path_edges = [(current_path[i], current_path[i+1]) 
+                             for i in range(len(current_path)-1) 
+                             if current_path[i+1] in G[current_path[i]]]
+                nx.draw_networkx_edges(G, pos, edgelist=path_edges, 
+                                      edge_color='red', width=3, ax=ax)
+            
+            # Labels dos nós
+            labels = {n: n for n in G.nodes()}
+            nx.draw_networkx_labels(G, pos, labels, font_size=10, ax=ax)
+            
+            # Informações da busca
+            status = "RECURSO ENCONTRADO!" if found else f"Buscando... (Passo {frame+1}/{len(search_steps)})"
+            title = f"Busca: {algo}\n"
+            title += f"Origem: {node_id} | Recurso: {resource_id} | TTL: {ttl}\n"
+            title += f"{status}\n"
+            title += f"Mensagens: {msg_count} | Nós envolvidos: {len(current_nodes)}"
+            
+            ax.set_title(title, fontsize=12, fontweight='bold')
+            ax.axis('off')
+        
+        anim = FuncAnimation(fig, update, frames=len(search_steps), 
+                           interval=800, repeat=True)
+        
+        if save_path:
+            anim.save(save_path, writer='pillow', fps=1)
+            print(f"Animação salva em: {save_path}")
+            plt.close()
+        else:
+            plt.show()
+        
+        return search_steps[-1]['found'], search_steps[-1]['msg_count'], \
+               len(search_steps[-1]['visited']), search_steps[-1]['current_path']
+
+    def _search_with_tracking(self, node_id: str, resource_id: str, 
+                            ttl: int, algo: str) -> List[dict]:
+        """
+        Executa a busca e retorna uma lista de estados (steps) para animação.
+        """
+        algo = algo.lower()
+        if algo == "flooding":
+            return self._search_flooding_tracked(node_id, resource_id, ttl, informed=False)
+        elif algo == "informed_flooding":
+            return self._search_flooding_tracked(node_id, resource_id, ttl, informed=True)
+        elif algo == "random_walk":
+            return self._search_random_walk_tracked(node_id, resource_id, ttl, informed=False)
+        elif algo == "informed_random_walk":
+            return self._search_random_walk_tracked(node_id, resource_id, ttl, informed=True)
+        else:
+            raise ValueError(f"Algoritmo desconhecido: {algo}")
+
+    def _search_flooding_tracked(self, start_id: str, resource_id: str, 
+                                ttl: int, informed: bool) -> List[dict]:
+        """
+        Flooding com rastreamento de estados para animação.
+        """
+        steps = []
+        msg_count = 0
+        visited = set()
+        nodes_involved = set()
+        queue = deque([(start_id, ttl, [start_id])])
+        
+        # Estado inicial
+        steps.append({
+            'visited': set([start_id]),
+            'current_path': [start_id],
+            'found': False,
+            'msg_count': 0
+        })
+        
+        while queue:
+            node_id, ttl_left, path = queue.popleft()
+            if ttl_left < 0:
+                continue
+            if node_id in visited:
+                continue
+            
+            visited.add(node_id)
+            nodes_involved.add(node_id)
+            node = self.nodes[node_id]
+            
+            # Adiciona step
+            steps.append({
+                'visited': visited.copy(),
+                'current_path': path.copy(),
+                'found': False,
+                'msg_count': msg_count
+            })
+            
+            # Verifica recurso
+            if resource_id in node.resources:
+                self._update_cache_on_hit(path, resource_id, node_id)
+                steps.append({
+                    'visited': visited.copy(),
+                    'current_path': path.copy(),
+                    'found': True,
+                    'msg_count': msg_count
+                })
+                return steps
+            
+            # Busca informada
+            if informed and resource_id in node.cache and node.cache[resource_id]:
+                target_id = next(iter(node.cache[resource_id]))
+                msg_count += 1
+                path2 = path + [target_id]
+                nodes_involved.add(target_id)
+                self._update_cache_on_hit(path2, resource_id, target_id)
+                steps.append({
+                    'visited': nodes_involved.copy(),
+                    'current_path': path2.copy(),
+                    'found': True,
+                    'msg_count': msg_count
+                })
+                return steps
+            
+            if ttl_left == 0:
+                continue
+            
+            # Envia para vizinhos
+            for neigh_id in node.neighbors:
+                if neigh_id not in visited:
+                    msg_count += 1
+                    queue.append((neigh_id, ttl_left - 1, path + [neigh_id]))
+        
+        return steps
+
+    def _search_random_walk_tracked(self, start_id: str, resource_id: str, 
+                                   ttl: int, informed: bool) -> List[dict]:
+        """
+        Random walk com rastreamento de estados para animação.
+        """
+        steps = []
+        msg_count = 0
+        nodes_involved = set()
+        current_id = start_id
+        path = [current_id]
+        
+        # Estado inicial
+        steps.append({
+            'visited': set([start_id]),
+            'current_path': [start_id],
+            'found': False,
+            'msg_count': 0
+        })
+        
+        while ttl >= 0:
+            node = self.nodes[current_id]
+            nodes_involved.add(current_id)
+            
+            # Adiciona step
+            steps.append({
+                'visited': nodes_involved.copy(),
+                'current_path': path.copy(),
+                'found': False,
+                'msg_count': msg_count
+            })
+            
+            # Verifica recurso
+            if resource_id in node.resources:
+                self._update_cache_on_hit(path, resource_id, current_id)
+                steps.append({
+                    'visited': nodes_involved.copy(),
+                    'current_path': path.copy(),
+                    'found': True,
+                    'msg_count': msg_count
+                })
+                return steps
+            
+            # Busca informada
+            if informed and resource_id in node.cache and node.cache[resource_id]:
+                target_id = next(iter(node.cache[resource_id]))
+                msg_count += 1
+                path.append(target_id)
+                nodes_involved.add(target_id)
+                self._update_cache_on_hit(path, resource_id, target_id)
+                steps.append({
+                    'visited': nodes_involved.copy(),
+                    'current_path': path.copy(),
+                    'found': True,
+                    'msg_count': msg_count
+                })
+                return steps
+            
+            if ttl == 0:
+                break
+            
+            if not node.neighbors:
+                break
+            
+            # Escolhe vizinho aleatório
+            next_id = random.choice(list(node.neighbors))
+            msg_count += 1
+            ttl -= 1
+            current_id = next_id
+            path.append(current_id)
+        
+        return steps
 
     # ---------- Algoritmos de busca ----------
 
@@ -242,34 +553,82 @@ def load_config(path: str) -> dict:
 
 
 def main():
-    if len(sys.argv) < 6:
+    if len(sys.argv) < 2:
         print(
-            "Uso: python p2p.py <config.json> <node_id> <resource_id> <ttl> "
-            "<algo: flooding|informed_flooding|random_walk|informed_random_walk>"
+            "Uso: python p2p.py <config.json> [comando] [args...]\n"
+            "\nComandos:\n"
+            "  visualize                    - Exibe a topologia da rede\n"
+            "  visualize <output.png>       - Salva a topologia em arquivo\n"
+            "  search <node_id> <resource_id> <ttl> <algo> - Busca sem animação\n"
+            "  animate <node_id> <resource_id> <ttl> <algo> - Busca com animação\n"
+            "  animate <node_id> <resource_id> <ttl> <algo> <output.gif> - Salva animação\n"
+            "\nAlgoritmos: flooding, informed_flooding, random_walk, informed_random_walk"
         )
         sys.exit(1)
 
     config_path = sys.argv[1]
-    node_id = sys.argv[2]
-    resource_id = sys.argv[3]
-    ttl = int(sys.argv[4])
-    algo = sys.argv[5]
-
     config = load_config(config_path)
     net = P2PNetwork(config)
 
-    found, msg_count, nodes_involved, path = net.search(
-        node_id=node_id,
-        resource_id=resource_id,
-        ttl=ttl,
-        algo=algo,
-    )
-
-    print(f"Encontrado: {found}")
-    print(f"Mensagens trocadas: {msg_count}")
-    print(f"Nós envolvidos: {nodes_involved}")
-    if found:
-        print(f"Caminho: {' -> '.join(path)}")
+    if len(sys.argv) == 2 or sys.argv[2] == "visualize":
+        # Visualização estática
+        save_path = sys.argv[3] if len(sys.argv) > 3 else None
+        net.visualize_network(save_path)
+    
+    elif sys.argv[2] == "search":
+        # Busca sem animação
+        if len(sys.argv) < 7:
+            print("Uso: python p2p.py <config.json> search <node_id> <resource_id> <ttl> <algo>")
+            sys.exit(1)
+        
+        node_id = sys.argv[3]
+        resource_id = sys.argv[4]
+        ttl = int(sys.argv[5])
+        algo = sys.argv[6]
+        
+        found, msg_count, nodes_involved, path = net.search(
+            node_id=node_id,
+            resource_id=resource_id,
+            ttl=ttl,
+            algo=algo,
+        )
+        
+        print(f"Encontrado: {found}")
+        print(f"Mensagens trocadas: {msg_count}")
+        print(f"Nós envolvidos: {nodes_involved}")
+        if found:
+            print(f"Caminho: {' -> '.join(path)}")
+    
+    elif sys.argv[2] == "animate":
+        # Busca com animação
+        if len(sys.argv) < 7:
+            print("Uso: python p2p.py <config.json> animate <node_id> <resource_id> <ttl> <algo> [output.gif]")
+            sys.exit(1)
+        
+        node_id = sys.argv[3]
+        resource_id = sys.argv[4]
+        ttl = int(sys.argv[5])
+        algo = sys.argv[6]
+        save_path = sys.argv[7] if len(sys.argv) > 7 else None
+        
+        found, msg_count, nodes_involved, path = net.visualize_search_animated(
+            node_id=node_id,
+            resource_id=resource_id,
+            ttl=ttl,
+            algo=algo,
+            save_path=save_path
+        )
+        
+        print(f"\nResultados:")
+        print(f"Encontrado: {found}")
+        print(f"Mensagens trocadas: {msg_count}")
+        print(f"Nós envolvidos: {nodes_involved}")
+        if found:
+            print(f"Caminho: {' -> '.join(path)}")
+    
+    else:
+        print(f"Comando desconhecido: {sys.argv[2]}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
