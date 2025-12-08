@@ -1,6 +1,0 @@
-
---- TESTE 2: Recurso Distante (Flooding) ---
-Encontrado: True
-Mensagens trocadas: 8
-Nós envolvidos: 6
-Caminho: n1 -> n2 -> n4 -> n6
