@@ -562,6 +562,7 @@ def main():
             "  search <node_id> <resource_id> <ttl> <algo> - Busca sem animação\n"
             "  animate <node_id> <resource_id> <ttl> <algo> - Busca com animação\n"
             "  animate <node_id> <resource_id> <ttl> <algo> <output.gif> - Salva animação\n"
+            "  <node_id> <resource_id> <ttl> <algo> - Busca sem animação (atalho)\n"
             "\nAlgoritmos: flooding, informed_flooding, random_walk, informed_random_walk"
         )
         sys.exit(1)
@@ -620,6 +621,27 @@ def main():
         )
         
         print(f"\nResultados:")
+        print(f"Encontrado: {found}")
+        print(f"Mensagens trocadas: {msg_count}")
+        print(f"Nós envolvidos: {nodes_involved}")
+        if found:
+            print(f"Caminho: {' -> '.join(path)}")
+    
+    elif len(sys.argv) == 6:
+        # Atalho: busca sem precisar escrever "search"
+        # python p2p.py config.json <node_id> <resource_id> <ttl> <algo>
+        node_id = sys.argv[2]
+        resource_id = sys.argv[3]
+        ttl = int(sys.argv[4])
+        algo = sys.argv[5]
+        
+        found, msg_count, nodes_involved, path = net.search(
+            node_id=node_id,
+            resource_id=resource_id,
+            ttl=ttl,
+            algo=algo,
+        )
+        
         print(f"Encontrado: {found}")
         print(f"Mensagens trocadas: {msg_count}")
         print(f"Nós envolvidos: {nodes_involved}")
