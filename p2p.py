@@ -325,7 +325,7 @@ class P2PNetwork:
         """
         steps = []
         msg_count = 0
-        nodes_involved = set()
+        visited = set()  # Nós já visitados no caminho atual
         current_id = start_id
         path = [current_id]
         
@@ -337,13 +337,14 @@ class P2PNetwork:
             'msg_count': 0
         })
         
-        while ttl >= 0:
+        ttl_remaining = ttl
+        while ttl_remaining >= 0:
             node = self.nodes[current_id]
-            nodes_involved.add(current_id)
+            visited.add(current_id)
             
             # Adiciona step
             steps.append({
-                'visited': nodes_involved.copy(),
+                'visited': visited.copy(),
                 'current_path': path.copy(),
                 'found': False,
                 'msg_count': msg_count
@@ -353,7 +354,7 @@ class P2PNetwork:
             if resource_id in node.resources:
                 self._update_cache_on_hit(path, resource_id, current_id)
                 steps.append({
-                    'visited': nodes_involved.copy(),
+                    'visited': visited.copy(),
                     'current_path': path.copy(),
                     'found': True,
                     'msg_count': msg_count
@@ -365,28 +366,50 @@ class P2PNetwork:
                 target_id = next(iter(node.cache[resource_id]))
                 msg_count += 1
                 path.append(target_id)
-                nodes_involved.add(target_id)
+                visited.add(target_id)
                 self._update_cache_on_hit(path, resource_id, target_id)
                 steps.append({
-                    'visited': nodes_involved.copy(),
+                    'visited': visited.copy(),
                     'current_path': path.copy(),
                     'found': True,
                     'msg_count': msg_count
                 })
                 return steps
             
-            if ttl == 0:
+            if ttl_remaining == 0:
                 break
             
-            if not node.neighbors:
-                break
+            # Encontra vizinhos não visitados
+            unvisited_neighbors = [n for n in node.neighbors if n not in visited]
             
-            # Escolhe vizinho aleatório
-            next_id = random.choice(list(node.neighbors))
-            msg_count += 1
-            ttl -= 1
-            current_id = next_id
-            path.append(current_id)
+            if unvisited_neighbors:
+                # Escolhe vizinho aleatório não visitado
+                next_id = random.choice(unvisited_neighbors)
+                msg_count += 1
+                ttl_remaining -= 1
+                current_id = next_id
+                path.append(current_id)
+            else:
+                # Backtracking: volta no caminho até encontrar nó com vizinhos não visitados
+                backtracked = False
+                while len(path) > 1:
+                    path.pop()  # Remove o nó atual
+                    current_id = path[-1]
+                    node = self.nodes[current_id]
+                    unvisited_neighbors = [n for n in node.neighbors if n not in visited]
+                    if unvisited_neighbors:
+                        # Encontrou nó com vizinhos não visitados
+                        next_id = random.choice(unvisited_neighbors)
+                        msg_count += 1
+                        ttl_remaining -= 1
+                        current_id = next_id
+                        path.append(current_id)
+                        backtracked = True
+                        break
+                
+                if not backtracked:
+                    # Não há mais caminhos para explorar
+                    break
         
         return steps
 
@@ -484,42 +507,65 @@ class P2PNetwork:
         informed: bool,
     ) -> Tuple[bool, int, int, List[str]]:
         msg_count = 0
-        nodes_involved = set()
+        visited = set()  # Nós já visitados no caminho atual
         current_id = start_id
         path = [current_id]
 
-        while ttl >= 0:
+        ttl_remaining = ttl
+        while ttl_remaining >= 0:
             node = self.nodes[current_id]
-            nodes_involved.add(current_id)
+            visited.add(current_id)
 
             # Verifica recurso local
             if resource_id in node.resources:
                 self._update_cache_on_hit(path, resource_id, current_id)
-                return True, msg_count, len(nodes_involved), path
+                return True, msg_count, len(visited), path
 
             # Se for informado e souber alguém que possua o recurso
             if informed and resource_id in node.cache and node.cache[resource_id]:
                 target_id = next(iter(node.cache[resource_id]))
                 msg_count += 1
                 path.append(target_id)
-                nodes_involved.add(target_id)
+                visited.add(target_id)
                 self._update_cache_on_hit(path, resource_id, target_id)
-                return True, msg_count, len(nodes_involved), path
+                return True, msg_count, len(visited), path
 
-            if ttl == 0:
+            if ttl_remaining == 0:
                 break
 
-            if not node.neighbors:
-                break
+            # Encontra vizinhos não visitados
+            unvisited_neighbors = [n for n in node.neighbors if n not in visited]
+            
+            if unvisited_neighbors:
+                # Escolhe vizinho aleatório não visitado
+                next_id = random.choice(unvisited_neighbors)
+                msg_count += 1
+                ttl_remaining -= 1
+                current_id = next_id
+                path.append(current_id)
+            else:
+                # Backtracking: volta no caminho até encontrar nó com vizinhos não visitados
+                backtracked = False
+                while len(path) > 1:
+                    path.pop()  # Remove o nó atual
+                    current_id = path[-1]
+                    node = self.nodes[current_id]
+                    unvisited_neighbors = [n for n in node.neighbors if n not in visited]
+                    if unvisited_neighbors:
+                        # Encontrou nó com vizinhos não visitados
+                        next_id = random.choice(unvisited_neighbors)
+                        msg_count += 1
+                        ttl_remaining -= 1
+                        current_id = next_id
+                        path.append(current_id)
+                        backtracked = True
+                        break
+                
+                if not backtracked:
+                    # Não há mais caminhos para explorar
+                    break
 
-            # Escolhe vizinho aleatório
-            next_id = random.choice(list(node.neighbors))
-            msg_count += 1
-            ttl -= 1
-            current_id = next_id
-            path.append(current_id)
-
-        return False, msg_count, len(nodes_involved), []
+        return False, msg_count, len(visited), []
 
 
 def load_config(path: str) -> dict:
