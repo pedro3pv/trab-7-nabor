@@ -29,6 +29,11 @@ A rede P2P utilizada nos testes possui 6 nós conectados conforme o diagrama aba
 
 ![Rede P2P - Topologia e Recursos](./network_topology.png)
 
+**Para gerar esta imagem, execute:**
+```bash
+python p2p.py config.json visualize network_topology.png
+```
+
 ### Tabela de Resultados
 
 | Cenário | Algoritmo | Origem → Destino | Msgs Trocadas | Nós Envolvidos | Caminho Encontrado | Observação |
@@ -44,25 +49,170 @@ A rede P2P utilizada nos testes possui 6 nós conectados conforme o diagrama aba
 ## Como Executar
 
 ### Pré-requisitos
-*   Python 3.x instalado.
+*   Python 3.x instalado
+*   Bibliotecas necessárias:
+    ```bash
+    pip install networkx matplotlib pillow
+    ```
+    Ou instale todas as dependências de uma vez:
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-### Comandos de Exemplo
-
-Para reproduzir os testes acima, utilize os seguintes comandos no terminal:
+### Sintaxe Geral
 
 ```bash
-# 1. Flooding - Recurso Próximo
+python p2p.py <config.json> [comando] [argumentos...]
+```
+
+### Comandos Disponíveis
+
+#### 1. Visualizar a Topologia da Rede
+
+**Exibir interativamente:**
+```bash
+python p2p.py config.json visualize
+```
+
+**Salvar como imagem PNG:**
+```bash
+python p2p.py config.json visualize network_topology.png
+```
+
+Este comando gera um gráfico visual da rede mostrando todos os nós, suas conexões (arestas) e os recursos disponíveis em cada nó.
+
+#### 2. Busca de Recursos (Modo Texto)
+
+**Sintaxe completa:**
+```bash
+python p2p.py config.json search <node_id> <resource_id> <ttl> <algoritmo>
+```
+
+**Sintaxe simplificada (atalho):**
+```bash
+python p2p.py config.json <node_id> <resource_id> <ttl> <algoritmo>
+```
+
+**Exemplos:**
+
+```bash
+# Flooding - Recurso Próximo
 python p2p.py config.json n1 imagem_festa.jpg 5 flooding
 
-# 2. Flooding - Recurso Distante
+# Flooding - Recurso Distante
 python p2p.py config.json n1 archive.zip 5 flooding
 
-# 3. Random Walk - Recurso Distante
+# Random Walk - Recurso Distante
 python p2p.py config.json n1 archive.zip 20 random_walk
+
+# Busca Informada (com cache) - Flooding
+python p2p.py config.json n1 archive.zip 5 informed_flooding
+
+# Busca Informada (com cache) - Random Walk
+python p2p.py config.json n1 archive.zip 20 informed_random_walk
 ```
+
+**Saída esperada:**
+```
+Encontrado: True
+Mensagens trocadas: 8
+Nós envolvidos: 6
+Caminho: n1 -> n2 -> n4 -> n6
+```
+
+#### 3. Busca com Animação Visual
+
+**Exibir animação interativa:**
+```bash
+python p2p.py config.json animate <node_id> <resource_id> <ttl> <algoritmo>
+```
+
+**Salvar animação como GIF:**
+```bash
+python p2p.py config.json animate <node_id> <resource_id> <ttl> <algoritmo> <output.gif>
+```
+
+**Exemplos:**
+
+```bash
+# Animação de busca por Flooding (exibir na tela)
+python p2p.py config.json animate n1 archive.zip 5 flooding
+
+# Salvar animação de Random Walk como GIF
+python p2p.py config.json animate n1 archive.zip 20 random_walk busca_random_walk.gif
+
+# Animação de busca informada
+python p2p.py config.json animate n1 imagem_festa.jpg 5 informed_flooding busca_informada.gif
+```
+
+A animação mostra visualmente:
+- **Nó laranja:** Nó de origem
+- **Nós amarelos:** Nós visitados durante a busca
+- **Nó verde:** Nó que possui o recurso procurado
+- **Linhas vermelhas:** Caminho percorrido até o momento
+- **Informações:** TTL, mensagens trocadas, nós envolvidos
+
+#### 4. Algoritmos Disponíveis
+
+| Algoritmo | Descrição | Uso Recomendado |
+|:----------|:----------|:----------------|
+| `flooding` | Inundação - propaga para todos os vizinhos | Garantir encontrar o recurso |
+| `informed_flooding` | Flooding com cache | Buscas repetidas, otimizar flooding |
+| `random_walk` | Passeio aleatório - escolhe vizinho aleatório | Reduzir tráfego de rede |
+| `informed_random_walk` | Random walk com cache | Buscas repetidas, otimizar random walk |
+
+### Exemplos Práticos de Uso
+
+#### Cenário 1: Comparar algoritmos para o mesmo recurso
+
+```bash
+# Teste com Flooding
+python p2p.py config.json n1 archive.zip 5 flooding
+
+# Teste com Random Walk
+python p2p.py config.json n1 archive.zip 20 random_walk
+
+# Compare mensagens trocadas e nós envolvidos
+```
+
+#### Cenário 2: Gerar visualizações para documentação
+
+```bash
+# 1. Gerar topologia da rede
+python p2p.py config.json visualize topology.png
+
+# 2. Gerar animação de busca por Flooding
+python p2p.py config.json animate n1 archive.zip 5 flooding flooding_search.gif
+
+# 3. Gerar animação de busca por Random Walk
+python p2p.py config.json animate n1 archive.zip 20 random_walk random_walk_search.gif
+```
+
+#### Cenário 3: Testar busca informada (cache)
+
+```bash
+# Primeira busca (popula o cache)
+python p2p.py config.json n1 archive.zip 5 informed_flooding
+
+# Segunda busca do mesmo recurso (usa o cache)
+python p2p.py config.json n3 archive.zip 5 informed_flooding
+# Observe a redução significativa em mensagens trocadas!
+```
+
+### Automação de Testes
 
 Para automação completa dos testes e geração de logs:
 ```bash
-# Em ambientes Unix/Linux/Git Bash
+# Em ambientes Unix/Linux/macOS/Git Bash
+chmod +x testes.sh
 ./testes.sh
 ```
+
+### Parâmetros Importantes
+
+- **`<node_id>`**: Identificador do nó de origem (ex: `n1`, `n2`, etc.)
+- **`<resource_id>`**: Nome do recurso procurado (ex: `archive.zip`, `imagem_festa.jpg`)
+- **`<ttl>`**: Time-To-Live - número máximo de saltos permitidos na busca
+  - Flooding geralmente precisa de TTL menor (5-10)
+  - Random Walk pode precisar de TTL maior (20-50)
+- **`<algoritmo>`**: Um dos quatro algoritmos disponíveis (veja tabela acima)
