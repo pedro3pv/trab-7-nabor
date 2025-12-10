@@ -246,17 +246,19 @@ class P2PNetwork:
     def _search_flooding_tracked(self, start_id: str, resource_id: str, 
                                 ttl: int, informed: bool) -> List[dict]:
         """
-        Flooding com rastreamento de estados para animação.
+        Flooding com backtracking e rastreamento para animação.
         """
         steps = []
         msg_count = 0
         visited = set()
         nodes_involved = set()
         queue = deque([(start_id, ttl, [start_id])])
+        visited.add(start_id)
+        nodes_involved.add(start_id)
         
         # Estado inicial
         steps.append({
-            'visited': set([start_id]),
+            'visited': visited.copy(),
             'current_path': [start_id],
             'found': False,
             'msg_count': 0
@@ -264,13 +266,6 @@ class P2PNetwork:
         
         while queue:
             node_id, ttl_left, path = queue.popleft()
-            if ttl_left < 0:
-                continue
-            if node_id in visited:
-                continue
-            
-            visited.add(node_id)
-            nodes_involved.add(node_id)
             node = self.nodes[node_id]
             
             # Adiciona step
@@ -307,12 +302,14 @@ class P2PNetwork:
                 })
                 return steps
             
-            if ttl_left == 0:
+            if ttl_left <= 0:
                 continue
             
-            # Envia para vizinhos
+            # Envia para vizinhos não visitados
             for neigh_id in node.neighbors:
                 if neigh_id not in visited:
+                    visited.add(neigh_id)
+                    nodes_involved.add(neigh_id)
                     msg_count += 1
                     queue.append((neigh_id, ttl_left - 1, path + [neigh_id]))
         
@@ -321,29 +318,32 @@ class P2PNetwork:
     def _search_random_walk_tracked(self, start_id: str, resource_id: str, 
                                    ttl: int, informed: bool) -> List[dict]:
         """
-        Random walk com rastreamento de estados para animação.
+        Random Walk com backtracking e rastreamento para animação:
+        - TTL representa quantos níveis de profundidade podemos explorar
+        - Backtracking NÃO consome TTL
         """
-        steps = []
+        animation_steps = []
         msg_count = 0
-        visited = set()  # Nós já visitados no caminho atual
+        visited = set()
         current_id = start_id
         path = [current_id]
+        visited.add(current_id)
+        path_ttl = [ttl]
         
         # Estado inicial
-        steps.append({
-            'visited': set([start_id]),
-            'current_path': [start_id],
+        animation_steps.append({
+            'visited': visited.copy(),
+            'current_path': path.copy(),
             'found': False,
             'msg_count': 0
         })
         
-        ttl_remaining = ttl
-        while ttl_remaining >= 0:
+        while True:
             node = self.nodes[current_id]
-            visited.add(current_id)
+            current_ttl = path_ttl[-1]
             
             # Adiciona step
-            steps.append({
+            animation_steps.append({
                 'visited': visited.copy(),
                 'current_path': path.copy(),
                 'found': False,
@@ -353,13 +353,13 @@ class P2PNetwork:
             # Verifica recurso
             if resource_id in node.resources:
                 self._update_cache_on_hit(path, resource_id, current_id)
-                steps.append({
+                animation_steps.append({
                     'visited': visited.copy(),
                     'current_path': path.copy(),
                     'found': True,
                     'msg_count': msg_count
                 })
-                return steps
+                return animation_steps
             
             # Busca informada
             if informed and resource_id in node.cache and node.cache[resource_id]:
@@ -368,50 +368,34 @@ class P2PNetwork:
                 path.append(target_id)
                 visited.add(target_id)
                 self._update_cache_on_hit(path, resource_id, target_id)
-                steps.append({
+                animation_steps.append({
                     'visited': visited.copy(),
                     'current_path': path.copy(),
                     'found': True,
                     'msg_count': msg_count
                 })
-                return steps
-            
-            if ttl_remaining == 0:
-                break
+                return animation_steps
             
             # Encontra vizinhos não visitados
             unvisited_neighbors = [n for n in node.neighbors if n not in visited]
             
-            if unvisited_neighbors:
-                # Escolhe vizinho aleatório não visitado
+            if unvisited_neighbors and current_ttl > 0:
                 next_id = random.choice(unvisited_neighbors)
                 msg_count += 1
-                ttl_remaining -= 1
                 current_id = next_id
                 path.append(current_id)
+                path_ttl.append(current_ttl - 1)
+                visited.add(current_id)
             else:
-                # Backtracking: volta no caminho até encontrar nó com vizinhos não visitados
-                backtracked = False
-                while len(path) > 1:
-                    path.pop()  # Remove o nó atual
+                # Backtracking (mantém TTL original do nó)
+                if len(path) > 1:
+                    path.pop()
+                    path_ttl.pop()
                     current_id = path[-1]
-                    node = self.nodes[current_id]
-                    unvisited_neighbors = [n for n in node.neighbors if n not in visited]
-                    if unvisited_neighbors:
-                        # Encontrou nó com vizinhos não visitados
-                        next_id = random.choice(unvisited_neighbors)
-                        msg_count += 1
-                        ttl_remaining -= 1
-                        current_id = next_id
-                        path.append(current_id)
-                        backtracked = True
-                        break
-                
-                if not backtracked:
-                    # Não há mais caminhos para explorar
+                else:
                     break
         
-        return steps
+        return animation_steps
 
     # ---------- Algoritmos de busca ----------
 
@@ -455,32 +439,31 @@ class P2PNetwork:
         ttl: int,
         informed: bool,
     ) -> Tuple[bool, int, int, List[str]]:
+        """
+        Flooding com backtracking:
+        - Envia para TODOS os vizinhos não visitados
+        - TTL é decrementado a cada nível de profundidade
+        - Usa BFS, então backtracking é implícito na estrutura
+        """
         msg_count = 0
         visited = set()
         nodes_involved = set()
         # fila: (node_id, ttl_restante, path)
         queue = deque([(start_id, ttl, [start_id])])
+        visited.add(start_id)
+        nodes_involved.add(start_id)
 
         while queue:
             node_id, ttl_left, path = queue.popleft()
-            if ttl_left < 0:
-                continue
-            if node_id in visited:
-                continue
-
-            visited.add(node_id)
-            nodes_involved.add(node_id)
             node = self.nodes[node_id]
 
             # Verifica se o próprio nó tem o recurso
             if resource_id in node.resources:
-                # acerto
                 self._update_cache_on_hit(path, resource_id, node_id)
                 return True, msg_count, len(nodes_involved), path
 
             # Se for "informado" e o nó souber quem tem o recurso
             if informed and resource_id in node.cache and node.cache[resource_id]:
-                # Considera que a mensagem segue diretamente para um nó conhecido
                 target_id = next(iter(node.cache[resource_id]))
                 msg_count += 1
                 path2 = path + [target_id]
@@ -488,12 +471,15 @@ class P2PNetwork:
                 nodes_involved.add(target_id)
                 return True, msg_count, len(nodes_involved), path2
 
-            if ttl_left == 0:
+            # Se TTL zerou, não propaga mais
+            if ttl_left <= 0:
                 continue
 
-            # Envia para todos os vizinhos (flood)
+            # Envia para todos os vizinhos não visitados (flood)
             for neigh_id in node.neighbors:
                 if neigh_id not in visited:
+                    visited.add(neigh_id)
+                    nodes_involved.add(neigh_id)
                     msg_count += 1
                     queue.append((neigh_id, ttl_left - 1, path + [neigh_id]))
 
@@ -506,15 +492,23 @@ class P2PNetwork:
         ttl: int,
         informed: bool,
     ) -> Tuple[bool, int, int, List[str]]:
+        """
+        Random Walk com backtracking:
+        - A cada passo, escolhe UM vizinho aleatório não visitado
+        - TTL representa quantos níveis de profundidade podemos explorar
+        - Backtracking NÃO consome TTL (apenas volta no caminho)
+        """
         msg_count = 0
-        visited = set()  # Nós já visitados no caminho atual
+        visited = set()  # Nós já visitados
         current_id = start_id
         path = [current_id]
+        visited.add(current_id)
+        # Cada nó no path tem um TTL associado
+        path_ttl = [ttl]  # TTL disponível em cada nó do path
 
-        ttl_remaining = ttl
-        while ttl_remaining >= 0:
+        while True:
             node = self.nodes[current_id]
-            visited.add(current_id)
+            current_ttl = path_ttl[-1]
 
             # Verifica recurso local
             if resource_id in node.resources:
@@ -530,39 +524,26 @@ class P2PNetwork:
                 self._update_cache_on_hit(path, resource_id, target_id)
                 return True, msg_count, len(visited), path
 
-            if ttl_remaining == 0:
-                break
-
             # Encontra vizinhos não visitados
             unvisited_neighbors = [n for n in node.neighbors if n not in visited]
-            
-            if unvisited_neighbors:
+
+            if unvisited_neighbors and current_ttl > 0:
                 # Escolhe vizinho aleatório não visitado
                 next_id = random.choice(unvisited_neighbors)
                 msg_count += 1
-                ttl_remaining -= 1
                 current_id = next_id
                 path.append(current_id)
+                path_ttl.append(current_ttl - 1)  # Próximo nó tem TTL-1
+                visited.add(current_id)
             else:
-                # Backtracking: volta no caminho até encontrar nó com vizinhos não visitados
-                backtracked = False
-                while len(path) > 1:
-                    path.pop()  # Remove o nó atual
+                # Backtracking: volta para o nó anterior (mantém TTL original)
+                if len(path) > 1:
+                    path.pop()
+                    path_ttl.pop()
                     current_id = path[-1]
-                    node = self.nodes[current_id]
-                    unvisited_neighbors = [n for n in node.neighbors if n not in visited]
-                    if unvisited_neighbors:
-                        # Encontrou nó com vizinhos não visitados
-                        next_id = random.choice(unvisited_neighbors)
-                        msg_count += 1
-                        ttl_remaining -= 1
-                        current_id = next_id
-                        path.append(current_id)
-                        backtracked = True
-                        break
-                
-                if not backtracked:
-                    # Não há mais caminhos para explorar
+                    # Não incrementa msg_count - backtrack é gratuito
+                else:
+                    # Não há para onde voltar
                     break
 
         return False, msg_count, len(visited), []
